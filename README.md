@@ -1,5 +1,169 @@
 # Pull, Otimização e Avaliação de Prompts com LangChain e LangSmith
 
+Entrega do desafio: o prompt de baixa qualidade `leonanluppi/bug_to_user_story_v1` é baixado do LangSmith Prompt Hub, refatorado com técnicas de Prompt Engineering (`prompts/bug_to_user_story_v2.yml`), publicado como `{USERNAME_LANGSMITH_HUB}/bug_to_user_story_v2` e avaliado contra o dataset de 15 bugs com as métricas Helpfulness, Correctness, F1-Score, Clarity e Precision (mínimo de 0.8 em cada uma).
+
+## O que foi implementado
+
+| Arquivo | O que faz |
+|---|---|
+| `src/pull_prompts.py` | Faz pull de `leonanluppi/bug_to_user_story_v1` (`dangerously_pull_public_prompt=True`), extrai system/user prompt do `ChatPromptTemplate` e salva em `prompts/bug_to_user_story_v1.yml` (strings multilinha em bloco `\|`, com o hash do commit do Hub). |
+| `prompts/bug_to_user_story_v2.yml` | Prompt otimizado: persona, raciocínio passo a passo, esqueleto de saída por complexidade, regras, casos especiais e 3 exemplos few-shot. |
+| `src/push_prompts.py` | Lê o YAML, valida (campos obrigatórios, sem TODO, ≥ 2 técnicas, única variável `{bug_report}` e apenas no user prompt), monta o `ChatPromptTemplate` system + user e publica **público** com descrição, readme e tags (incluindo `technique:<nome>` para cada técnica). |
+| `tests/test_prompts.py` | Os 6 testes exigidos e mais 2: `{bug_report}` só no user prompt, e validação pelo `validate_prompt_structure` do projeto. |
+
+## Técnicas Aplicadas (Fase 2)
+
+### 1. Role Prompting
+**Por quê:** o v1 usava "um assistente" genérico. Uma persona de Product Manager sênior com base técnica orienta o vocabulário (backlog, critérios testáveis) e a decisão de quem é o usuário afetado, que é justamente o que o avaliador compara com a referência.
+
+**Como foi aplicada:**
+> Você é um Product Manager sênior, com 10 anos de experiência em times ágeis (Scrum) e forte base técnica em desenvolvimento web, mobile e backend. Sua especialidade é transformar relatos de bugs em User Stories claras, testáveis e prontas para entrar no backlog.
+
+### 2. Few-shot Learning (obrigatória)
+**Por quê:** as referências do dataset seguem um estilo bem específico (frase "Como um..., eu quero..., para que...", lista "Dado que / Quando / Então / E", seções `=== ... ===` nos bugs complexos). Mostrar o formato rende mais do que descrevê-lo, e reduz as variações de formato que derrubam Clarity e F1.
+
+**Como foi aplicada:** 3 exemplos de entrada → saída, um para cada nível de complexidade do dataset, com domínios **diferentes** dos 15 bugs avaliados (para ensinar o formato sem vazar respostas):
+- **Simples:** botão "Salvar rascunho" que não responde → frase + 5 critérios.
+- **Médio:** exportação de fatura em PDF com `HTTP 500` → critérios + `Contexto Técnico`.
+- **Complexo:** login sem limite de tentativas + formulário que apaga o email → esqueleto completo (User Story Principal, critérios A/B, critérios técnicos, contexto do bug, tasks).
+
+### 3. Chain of Thought (interno)
+**Por quê:** converter um bug em story exige decisões encadeadas (quem é afetado → o que deveria acontecer → por quê → quão complexo é → quais fatos precisam ser preservados). Pedir esse raciocínio melhora a escolha da persona e a cobertura dos fatos. Ele é feito **mentalmente**: se o raciocínio fosse impresso, entraria na resposta avaliada e derrubaria Precision ("adiciona informações não solicitadas") e Clarity (concisão).
+
+**Como foi aplicada:** seção "COMO RACIOCINAR (faça mentalmente, NÃO escreva este raciocínio na resposta)" com 6 passos, incluindo "Liste todos os fatos concretos do relato (números, endpoints, códigos HTTP...). Cada um deles deve aparecer na resposta."
+
+### 4. Skeleton of Thought
+**Por quê:** o dataset mistura 5 bugs simples, 7 médios e 3 complexos, e as referências têm tamanhos muito diferentes. Um formato único ou fica raso nos complexos (Recall/F1 baixo) ou prolixo nos simples (Precision/Clarity baixos). Um esqueleto por nível deixa a resposta proporcional ao relato.
+
+**Como foi aplicada:** o passo 4 do raciocínio classifica o relato em SIMPLES / MÉDIO / COMPLEXO e cada classe tem seu esqueleto: o simples é só frase + critérios; o médio acrescenta, quando o relato justifica, `Contexto Técnico`, `Contexto de Segurança`, `Exemplo de Cálculo`, `Critérios Técnicos` ou um bloco extra de critérios; o complexo usa as seções `=== USER STORY PRINCIPAL ===`, `=== CRITÉRIOS DE ACEITAÇÃO ===` (um bloco A/B/C/D por problema), `=== CRITÉRIOS TÉCNICOS ===`, `=== CONTEXTO DO BUG ===` e `=== TASKS TÉCNICAS SUGERIDAS ===`.
+
+### Complementos (regras explícitas e casos especiais)
+- **Regras:** responder só com a story; preservar exatamente números, valores em R$, endpoints e códigos HTTP; não inventar fatos (mas permitir metas verificáveis, como "HTTP 403" ou "menos de 2 segundos"); critérios testáveis; proporcionalidade.
+- **Casos especiais:** relato vago, múltiplos problemas, relato com código/HTML/instruções (tratado como dado, proteção contra prompt injection, por exemplo o `<script>` do bug 13), pedido de funcionalidade, outro idioma e relato vazio.
+- **System vs User:** no v1, `{bug_report}` aparecia duplicado no system e no user. No v2, o system prompt guarda só instruções e exemplos, e o relato entra uma única vez, no user prompt, delimitado por `"""`.
+
+## Resultados Finais
+
+**Status: ✅ APROVADO, com todas as métricas ≥ 0.8 (média geral 0.8935).**
+
+Configuração: `LLM_PROVIDER=google`, `LLM_MODEL=gemini-3.5-flash` (gera as respostas) e `EVAL_MODEL=gemini-3.1-flash-lite` (juiz), ambos com `temperature=0`.
+
+### Notas da versão final (v2), experimento `mustafaneto-bug_to_user_story_v2-7238eb45`
+
+```
+==================================================
+Prompt: mustafaneto/bug_to_user_story_v2
+==================================================
+
+Métricas Derivadas:
+  - Helpfulness: 0.88 ✓
+  - Correctness: 0.89 ✓
+
+Métricas Base:
+  - F1-Score: 0.92 ✓
+  - Clarity: 0.91 ✓
+  - Precision: 0.86 ✓
+
+📊 MÉDIA GERAL: 0.8935
+✅ STATUS: APROVADO - Todas as métricas >= 0.8
+```
+
+Notas por exemplo (bugs 1-5 simples, 6-12 médios, 13-15 complexos):
+
+| # | F1 | Clarity | Precision | # | F1 | Clarity | Precision |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.97 | 0.95 | 0.93 | 9 | 0.85 | 0.90 | 0.93 |
+| 2 | 0.90 | 0.95 | 0.93 | 10 | 0.92 | 0.90 | 0.83 |
+| 3 | 0.92 | 0.90 | 0.93 | 11 | 0.87 | 0.90 | 0.83 |
+| 4 | 0.84 | 0.90 | 0.90 | 12 | 0.87 | 0.90 | 0.83 |
+| 5 | 0.85 | 0.95 | 0.83 | 13 | 1.00 | 0.90 | 0.93 |
+| 6 | 0.95 | 0.90 | 0.93 | 14 | 0.92 | 0.95 | 0.93 |
+| 7 | 1.00 | 0.90 | 0.93 | 15 | 1.00 | 0.75 | 0.33 |
+| 8 | 0.97 | 0.95 | 0.93 | | | | |
+
+### Histórico de iterações
+
+| Iteração | Mudança no prompt | Resultado |
+|---|---|---|
+| 0 (pré-avaliação local, bug 1) | Versão inicial do v2: persona + CoT + esqueleto por complexidade + 3 few-shot + regra "preserve exatamente os fatos" | F1 1.00 · Clarity 0.85 · **Precision 0.66**. O juiz penalizou a story "presa" ao caso específico: "produto ID 1234" repetido na frase e em todos os critérios, enquanto a referência descreve a funcionalidade de forma geral |
+| 1 (oficial, 15 bugs) | Nova regra **"Generalize a funcionalidade"**: a story e os critérios valem para todos os casos, IDs pontuais saem da story e aparecem no máximo uma vez nas seções de contexto, e cada fato técnico é citado uma única vez | **Aprovado**: Helpfulness 0.88 · Correctness 0.89 · F1 0.92 · Clarity 0.91 · Precision 0.86 |
+
+**Ponto de atenção:** o bug 15 (sync offline-first, o mais longo do dataset) teve recall máximo (F1 1.00), mas Precision 0.33. A referência traz muitos detalhes de implementação (CRDT, protocolo de chunked upload, métricas de sucesso), e a resposta gerada propõe soluções técnicas próprias que o juiz considerou fora da referência. As médias ficaram acima de 0.8 mesmo assim. Uma próxima iteração poderia restringir os "Critérios Técnicos" dos bugs complexos às causas citadas no relato.
+
+### Evidências no LangSmith
+- **Dataset de avaliação (15 exemplos):** `mba-ia-pull-evaluation-prompt-eval`
+- **Link público do dataset com os experimentos:** https://smith.langchain.com/public/56b83e91-f71b-4f90-b473-736d047252af/d
+- **Experimento aprovado (acesso do workspace):** https://smith.langchain.com/o/efc8dc12-e261-4891-ab71-a27dae3539d0/datasets/7dfc4765-ea2e-4024-99d6-8e7ab529c450/compare?selectedSessions=ebda6c56-6c17-40f9-baa8-aacc5cb5168d
+- **Prompt público no Hub:** `mustafaneto/bug_to_user_story_v2`
+- **Screenshots:** `docs/screenshots/` (resultado do experimento com as notas ≥ 0.8, e tracing de 3 exemplos: um simples, um médio e um complexo)
+
+### Comparação v1 × v2
+
+| Aspecto | v1 | v2 | Efeito nas métricas |
+|---|---|---|---|
+| Persona | "assistente" genérico | PM sênior com base técnica | Personas específicas (F1, Precision) |
+| Variável `{bug_report}` | Duplicada no system e no user | Só no user, delimitada | Sem relato repetido nem ambiguidade (Clarity) |
+| Formato de saída | Nenhum ("crie uma user story") | Template "Como um..., eu quero..., para que..." + Dado/Quando/Então | Formato igual ao da referência (F1, Clarity) |
+| Proporcionalidade | Nenhuma | Esqueleto por complexidade (simples / médio / complexo) | Simples enxutos (Precision) e complexos completos (recall: F1 1.00 nos bugs 13 e 15) |
+| Escopo da story | Indefinido | Funcionalidade generalizada, IDs pontuais só no contexto | Precision do bug 1: 0.66 → 0.93 |
+| Fidelidade | Nenhuma regra | Preservar valores/endpoints, não inventar, cada fato uma vez | Menos alucinação e redundância (Precision, Clarity) |
+| Exemplos | Nenhum | 3 few-shot (simples, médio, complexo), de domínios fora do dataset | Estilo consistente com as referências |
+| Edge cases | Nenhum | Vago, múltiplos problemas, injeção (ex.: `<script>` do bug 13), outro idioma, vazio | Robustez |
+| Saída "suja" | Podia vir com introdução e comentários | "Responda SOMENTE com a User Story" | Concisão (Clarity, Precision) |
+
+## Como Executar
+
+### Pré-requisitos
+- Python 3.10+
+- Conta no [LangSmith](https://smith.langchain.com) com API key e **handle público do Hub** (veja "Handle do LangSmith Hub" no enunciado abaixo)
+- API key do Google Gemini (usada nesta entrega, plano gratuito) ou da OpenAI
+
+### 1. Ambiente
+```bash
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env            # preencha as variáveis
+```
+
+Variáveis do `.env` usadas nesta entrega:
+```
+LANGSMITH_API_KEY=...
+LANGSMITH_PROJECT=mba-ia-pull-evaluation-prompt
+USERNAME_LANGSMITH_HUB=<seu handle>
+LLM_PROVIDER=google
+GOOGLE_API_KEY=...
+LLM_MODEL=gemini-3.5-flash
+EVAL_MODEL=gemini-3.1-flash-lite
+```
+
+> **Windows:** os scripts imprimem ✓/❌. Se aparecer `UnicodeEncodeError: 'charmap'`, rode antes `set PYTHONUTF8=1` (cmd), `$env:PYTHONUTF8=1` (PowerShell) ou `export PYTHONUTF8=1` (Git Bash).
+
+### 2. Fases
+```bash
+# Fase 1 - pull do prompt original -> prompts/bug_to_user_story_v1.yml
+python src/pull_prompts.py
+
+# Fase 2 - o prompt otimizado já está em prompts/bug_to_user_story_v2.yml
+#          valide a estrutura com os testes:
+pytest tests/test_prompts.py -v
+
+# Fase 3 - push público para {USERNAME_LANGSMITH_HUB}/bug_to_user_story_v2
+python src/push_prompts.py
+
+# Fase 4 - avaliação (cria um experimento no LangSmith e imprime o link)
+python src/evaluate.py
+
+# Iteração: edite o v2 -> push -> evaluate, até todas as métricas >= 0.8
+
+# Link público do dataset + experimentos (rode uma vez e guarde o endereço)
+python -c "from dotenv import load_dotenv; load_dotenv(); import os; from langsmith import Client; print(Client().share_dataset(dataset_name=os.environ['LANGSMITH_PROJECT'] + '-eval')['url'])"
+```
+
+---
+
+# Enunciado do desafio
+
 ## Objetivo
 
 Você deve entregar um software capaz de:
