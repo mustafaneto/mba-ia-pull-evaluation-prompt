@@ -68,17 +68,17 @@ Métricas Base:
 ✅ STATUS: APROVADO - Todas as métricas >= 0.8
 ```
 
-Notas por exemplo (bugs 1-5 simples, 6-12 médios, 13-15 complexos):
+Notas por exemplo, na numeração da linha do `datasets/bug_to_user_story.jsonl` (bugs 1-5 simples, 6-12 médios, 13-15 complexos). O terminal do `evaluate.py` numera pela ordem de execução, que é diferente:
 
 | # | F1 | Clarity | Precision | # | F1 | Clarity | Precision |
 |---|---|---|---|---|---|---|---|
-| 1 | 0.97 | 0.95 | 0.93 | 9 | 0.85 | 0.90 | 0.93 |
-| 2 | 0.90 | 0.95 | 0.93 | 10 | 0.92 | 0.90 | 0.83 |
-| 3 | 0.92 | 0.90 | 0.93 | 11 | 0.87 | 0.90 | 0.83 |
-| 4 | 0.84 | 0.90 | 0.90 | 12 | 0.87 | 0.90 | 0.83 |
-| 5 | 0.85 | 0.95 | 0.83 | 13 | 1.00 | 0.90 | 0.93 |
-| 6 | 0.95 | 0.90 | 0.93 | 14 | 0.92 | 0.95 | 0.93 |
-| 7 | 1.00 | 0.90 | 0.93 | 15 | 1.00 | 0.75 | 0.33 |
+| 1 | 1.00 | 0.75 | 0.33 | 9 | 1.00 | 0.90 | 0.93 |
+| 2 | 0.92 | 0.95 | 0.93 | 10 | 0.95 | 0.90 | 0.93 |
+| 3 | 1.00 | 0.90 | 0.93 | 11 | 0.85 | 0.95 | 0.83 |
+| 4 | 0.87 | 0.90 | 0.83 | 12 | 0.84 | 0.90 | 0.90 |
+| 5 | 0.87 | 0.90 | 0.83 | 13 | 0.92 | 0.90 | 0.93 |
+| 6 | 0.92 | 0.90 | 0.83 | 14 | 0.97 | 0.95 | 0.93 |
+| 7 | 0.85 | 0.90 | 0.93 | 15 | 0.90 | 0.95 | 0.93 |
 | 8 | 0.97 | 0.95 | 0.93 | | | | |
 
 ### Histórico de iterações
@@ -88,14 +88,24 @@ Notas por exemplo (bugs 1-5 simples, 6-12 médios, 13-15 complexos):
 | 0 (pré-avaliação local, bug 1) | Versão inicial do v2: persona + CoT + esqueleto por complexidade + 3 few-shot + regra "preserve exatamente os fatos" | F1 1.00 · Clarity 0.85 · **Precision 0.66**. O juiz penalizou a story "presa" ao caso específico: "produto ID 1234" repetido na frase e em todos os critérios, enquanto a referência descreve a funcionalidade de forma geral |
 | 1 (oficial, 15 bugs) | Nova regra **"Generalize a funcionalidade"**: a story e os critérios valem para todos os casos, IDs pontuais saem da story e aparecem no máximo uma vez nas seções de contexto, e cada fato técnico é citado uma única vez | **Aprovado**: Helpfulness 0.88 · Correctness 0.89 · F1 0.92 · Clarity 0.91 · Precision 0.86 |
 
-**Ponto de atenção:** o bug 15 (sync offline-first, o mais longo do dataset) teve recall máximo (F1 1.00), mas Precision 0.33. A referência traz muitos detalhes de implementação (CRDT, protocolo de chunked upload, métricas de sucesso), e a resposta gerada propõe soluções técnicas próprias que o juiz considerou fora da referência. As médias ficaram acima de 0.8 mesmo assim. Uma próxima iteração poderia restringir os "Critérios Técnicos" dos bugs complexos às causas citadas no relato.
+**Ponto de atenção: ruído do juiz no bug 1.** O bug 1 ("Botão de adicionar ao carrinho não funciona no produto ID 1234") teve F1 1.00, mas Clarity 0.75 e Precision 0.33. A saída gerada é praticamente igual à referência: a mesma persona, os mesmos três resultados (produto adicionado, confirmação visual, contador atualizado). Mesmo assim, o juiz de Precision justificou a nota dizendo que a resposta "não oferece solução ou diagnóstico para o erro reportado", ou seja, avaliou como se a tarefa fosse suporte técnico, e não a conversão em user story. Na pré-avaliação, a versão que citava o "ID 1234" foi penalizada pelo motivo oposto (0.66, "restringiu o escopo ao ID 1234"). Bugs de uma linha, sem detalhes técnicos, deixam o juiz (`gemini-3.1-flash-lite`) mais suscetível a essa confusão. As médias de todas as métricas ficaram acima de 0.8 mesmo assim. Um juiz mais capaz (`EVAL_MODEL`) tende a reduzir esse ruído.
 
 ### Evidências no LangSmith
 - **Dataset de avaliação (15 exemplos):** `mba-ia-pull-evaluation-prompt-eval`
 - **Link público do dataset com os experimentos:** https://smith.langchain.com/public/56b83e91-f71b-4f90-b473-736d047252af/d
 - **Experimento aprovado (acesso do workspace):** https://smith.langchain.com/o/efc8dc12-e261-4891-ab71-a27dae3539d0/datasets/7dfc4765-ea2e-4024-99d6-8e7ab529c450/compare?selectedSessions=ebda6c56-6c17-40f9-baa8-aacc5cb5168d
 - **Prompt público no Hub:** `mustafaneto/bug_to_user_story_v2`
-- **Screenshots:** `docs/screenshots/` (resultado do experimento com as notas ≥ 0.8, e tracing de 3 exemplos: um simples, um médio e um complexo)
+- **Screenshots** (`docs/screenshots/`):
+
+  Experimento com as médias por métrica (clarity 0.91 · correctness 0.89 · f1_score 0.92 · helpfulness 0.88 · precision 0.86):
+
+  ![Experimento no LangSmith](docs/screenshots/01-experimento-notas.jpg)
+
+  Tracing de 3 exemplos, com as notas de feedback, o input e o output de cada um, e a chamada ao `gemini-3.5-flash`:
+
+  | Simples: validação de email (bug 2) | Médio: webhook de pagamento (bug 6) | Complexo: checkout (bug 13) |
+  |---|---|---|
+  | ![Trace simples](docs/screenshots/02-trace-simples-email.jpg) | ![Trace médio](docs/screenshots/03-trace-medio-webhook.jpg) | ![Trace complexo](docs/screenshots/04-trace-complexo-checkout.jpg) |
 
 ### Comparação v1 × v2
 
@@ -105,7 +115,7 @@ Notas por exemplo (bugs 1-5 simples, 6-12 médios, 13-15 complexos):
 | Variável `{bug_report}` | Duplicada no system e no user | Só no user, delimitada | Sem relato repetido nem ambiguidade (Clarity) |
 | Formato de saída | Nenhum ("crie uma user story") | Template "Como um..., eu quero..., para que..." + Dado/Quando/Então | Formato igual ao da referência (F1, Clarity) |
 | Proporcionalidade | Nenhuma | Esqueleto por complexidade (simples / médio / complexo) | Simples enxutos (Precision) e complexos completos (recall: F1 1.00 nos bugs 13 e 15) |
-| Escopo da story | Indefinido | Funcionalidade generalizada, IDs pontuais só no contexto | Precision do bug 1: 0.66 → 0.93 |
+| Escopo da story | Indefinido | Funcionalidade generalizada, IDs pontuais só no contexto | Story fiel à referência (F1 1.00 no bug 1); ver ponto de atenção sobre o juiz |
 | Fidelidade | Nenhuma regra | Preservar valores/endpoints, não inventar, cada fato uma vez | Menos alucinação e redundância (Precision, Clarity) |
 | Exemplos | Nenhum | 3 few-shot (simples, médio, complexo), de domínios fora do dataset | Estilo consistente com as referências |
 | Edge cases | Nenhum | Vago, múltiplos problemas, injeção (ex.: `<script>` do bug 13), outro idioma, vazio | Robustez |
